@@ -21,12 +21,18 @@ jobs:
         with:
           gradle-version: '8.4'
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+
       - name: Generate Android Project Files
         run: |
           mkdir -p app/src/main/java/com/farmo/earn
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/xml
           mkdir -p app/src/main/res/values
+
+          echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
 
           # settings.gradle
           cat << 'EOF' > settings.gradle
@@ -237,14 +243,19 @@ jobs:
                   val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
                   val p4 = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) pm.isIgnoringBatteryOptimizations(packageName) else true
 
+                  val t1 = if (p1) "Granted" else "Grant"
+                  val t2 = if (p2) "Granted" else "Grant"
+                  val t3 = if (p3) "Granted" else "Grant"
+                  val t4 = if (p4) "Granted" else "Grant"
+
                   val js = "javascript:(function(){" +
                           "if(window.grantedPerms){" +
-                          "  grantedPerms[1] = $p1; document.getElementById('p-btn-1').innerText = '${if (p1) "Granted" else "Grant"}';" +
-                          "  grantedPerms[2] = $p2; document.getElementById('p-btn-2').innerText = '${if (p2) "Granted" else "Grant"}';" +
-                          "  grantedPerms[3] = $p3; document.getElementById('p-btn-3').innerText = '${if (p3) "Granted" else "Grant"}';" +
-                          "  grantedPerms[4] = $p4; document.getElementById('p-btn-4').innerText = '${if (p4) "Granted" else "Grant"}';" +
-                          "  if($p1 && $p2 && $p3 && $p4){" +
-                          "    var b = document.getElementById('btn-perm-confirm'); b.disabled = false; b.className = 'w-full py-4 rounded-xl purple-gradient text-white font-black text-xs uppercase cursor-pointer';" +
+                          "  grantedPerms[1] = " + p1 + "; var b1 = document.getElementById('p-btn-1'); if(b1) b1.innerText = '" + t1 + "';" +
+                          "  grantedPerms[2] = " + p2 + "; var b2 = document.getElementById('p-btn-2'); if(b2) b2.innerText = '" + t2 + "';" +
+                          "  grantedPerms[3] = " + p3 + "; var b3 = document.getElementById('p-btn-3'); if(b3) b3.innerText = '" + t3 + "';" +
+                          "  grantedPerms[4] = " + p4 + "; var b4 = document.getElementById('p-btn-4'); if(b4) b4.innerText = '" + t4 + "';" +
+                          "  if(" + p1 + " && " + p2 + " && " + p3 + " && " + p4 + "){" +
+                          "    var b = document.getElementById('btn-perm-confirm'); if(b){ b.disabled = false; b.className = 'w-full py-4 rounded-xl purple-gradient text-white font-black text-xs uppercase cursor-pointer'; }" +
                           "  }" +
                           "}" +
                           "})()"
@@ -375,7 +386,7 @@ jobs:
                   countDownTimer?.cancel()
                   countDownTimer = object : CountDownTimer(15000, 1000) {
                       override fun onTick(millisUntilFinished: Long) {
-                          timerText?.text = "Farmo: ${millisUntilFinished / 1000}s"
+                          timerText?.text = "Farmo: " + (millisUntilFinished / 1000) + "s"
                       }
 
                       override fun onFinish() {
