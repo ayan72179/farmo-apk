@@ -34,14 +34,12 @@ jobs:
 
           echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
 
-          # gradle.properties (Fixes AndroidX requirement)
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
-          android.nonTransitiveRClass=true
+          android.enableJetifier=true
           org.gradle.jvmargs=-Xmx2048m
           EOF
 
-          # settings.gradle
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
@@ -61,14 +59,12 @@ jobs:
           include ':app'
           EOF
 
-          # root build.gradle
           cat << 'EOF' > build.gradle
           plugins {
               id 'com.android.application' version '8.2.2' apply false
           }
           EOF
 
-          # app/build.gradle
           cat << 'EOF' > app/build.gradle
           plugins {
               id 'com.android.application'
@@ -103,14 +99,12 @@ jobs:
           }
           EOF
 
-          # app/src/main/res/values/strings.xml
           cat << 'EOF' > app/src/main/res/values/strings.xml
           <resources>
               <string name="app_name">Farmo Earn</string>
           </resources>
           EOF
 
-          # app/src/main/res/xml/accessibility_service_config.xml
           cat << 'EOF' > app/src/main/res/xml/accessibility_service_config.xml
           <?xml version="1.0" encoding="utf-8"?>
           <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
@@ -123,7 +117,6 @@ jobs:
               android:packageNames="com.google.android.youtube" />
           EOF
 
-          # app/src/main/res/layout/activity_main.xml
           cat << 'EOF' > app/src/main/res/layout/activity_main.xml
           <?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -136,7 +129,6 @@ jobs:
           </RelativeLayout>
           EOF
 
-          # app/src/main/res/layout/overlay_countdown.xml
           cat << 'EOF' > app/src/main/res/layout/overlay_countdown.xml
           <?xml version="1.0" encoding="utf-8"?>
           <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -157,7 +149,6 @@ jobs:
           </LinearLayout>
           EOF
 
-          # app/src/main/AndroidManifest.xml
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -168,7 +159,6 @@ jobs:
 
               <application
                   android:allowBackup="true"
-                  android:icon="@android:drawable/sym_def_app_icon"
                   android:label="@string/app_name"
                   android:theme="@style/Theme.AppCompat.NoActionBar">
 
@@ -196,7 +186,6 @@ jobs:
           </manifest>
           EOF
 
-          # app/src/main/java/com/farmo/earn/MainActivity.java
           cat << 'EOF' > app/src/main/java/com/farmo/earn/MainActivity.java
           package com.farmo.earn;
 
@@ -243,7 +232,7 @@ jobs:
                   boolean p2 = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
                   boolean p3 = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.System.canWrite(this);
                   PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                  boolean p4 = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || pm.isIgnoringBatteryOptimizations(getPackageName());
+                  boolean p4 = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName()));
 
                   String t1 = p1 ? "Granted" : "Grant";
                   String t2 = p2 ? "Granted" : "Grant";
@@ -326,7 +315,6 @@ jobs:
           }
           EOF
 
-          # app/src/main/java/com/farmo/earn/YouTubeWatcherService.java
           cat << 'EOF' > app/src/main/java/com/farmo/earn/YouTubeWatcherService.java
           package com.farmo.earn;
 
@@ -361,7 +349,7 @@ jobs:
 
               @Override
               public void onServiceConnected() {
-                  super.onServiceConnected()
+                  super.onServiceConnected();
                   windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
                   setupFloatingOverlay();
               }
