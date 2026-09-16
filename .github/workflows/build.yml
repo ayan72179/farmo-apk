@@ -87,7 +87,11 @@ jobs:
                   release {
                       minifyEnabled false
                   }
+                  debug {
+                      minifyEnabled false
+                  }
               }
+
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
@@ -96,6 +100,7 @@ jobs:
 
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.11.0'
               implementation 'com.squareup.okhttp3:okhttp:4.12.0'
           }
           EOF
@@ -103,6 +108,7 @@ jobs:
           cat << 'EOF' > app/src/main/res/values/strings.xml
           <resources>
               <string name="app_name">Farmo Earn</string>
+              <string name="accessibility_service_description">Farmo Earn Watch Assistant monitors YouTube tasks and provides verification timers.</string>
           </resources>
           EOF
 
@@ -112,8 +118,8 @@ jobs:
               android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
               android:accessibilityFeedbackType="feedbackGeneric"
               android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
-              android:canRetrieveWindowContent="true"
-              android:description="@string/app_name"
+              android:canRetrieveWindowContent="false"
+              android:description="@string/accessibility_service_description"
               android:notificationTimeout="100"
               android:packageNames="com.google.android.youtube" />
           EOF
@@ -122,7 +128,9 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:layout_width="match_parent"
-              android:layout_height="match_parent">
+              android:layout_height="match_parent"
+              android:background="#0C051F">
+
               <WebView
                   android:id="@+id/mainWebView"
                   android:layout_width="match_parent"
@@ -135,16 +143,20 @@ jobs:
           <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:layout_width="wrap_content"
               android:layout_height="wrap_content"
-              android:background="#DD12072B"
-              android:padding="10dp"
+              android:background="#E612072B"
+              android:paddingStart="14dp"
+              android:paddingTop="8dp"
+              android:paddingEnd="14dp"
+              android:paddingBottom="8dp"
               android:orientation="horizontal"
               android:gravity="center">
+
               <TextView
                   android:id="@+id/overlayTimer"
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
                   android:text="Farmo: 15s"
-                  android:textColor="#10b981"
+                  android:textColor="#10B981"
                   android:textSize="14sp"
                   android:textStyle="bold" />
           </LinearLayout>
@@ -152,19 +164,34 @@ jobs:
 
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools">
+
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-              <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+              <uses-permission android:name="android.permission.WRITE_SETTINGS"
+                  tools:ignore="ProtectedPermissions" />
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+              <queries>
+                  <package android:name="com.google.android.youtube" />
+                  <intent>
+                      <action android:name="android.intent.action.VIEW" />
+                      <data android:scheme="https" />
+                  </intent>
+              </queries>
 
               <application
                   android:allowBackup="true"
                   android:label="@string/app_name"
-                  android:theme="@style/Theme.AppCompat.NoActionBar">
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.AppCompat.NoActionBar"
+                  android:usesCleartextTraffic="true">
 
                   <activity
                       android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -174,8 +201,9 @@ jobs:
 
                   <service
                       android:name=".YouTubeWatcherService"
-                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-                      android:exported="true">
+                      android:exported="true"
+                      android:label="Farmo Earn Watch Assistant"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
                       <intent-filter>
                           <action android:name="android.accessibilityservice.AccessibilityService" />
                       </intent-filter>
@@ -183,6 +211,7 @@ jobs:
                           android:name="android.accessibilityservice"
                           android:resource="@xml/accessibility_service_config" />
                   </service>
+
               </application>
           </manifest>
           EOF
@@ -191,6 +220,7 @@ jobs:
           package com.farmo.earn;
 
           import android.annotation.SuppressLint;
+          import android.content.ActivityNotFoundException;
           import android.content.Context;
           import android.content.Intent;
           import android.net.Uri;
@@ -198,14 +228,21 @@ jobs:
           import android.os.Bundle;
           import android.os.PowerManager;
           import android.provider.Settings;
+          import android.webkit.CookieManager;
           import android.webkit.JavascriptInterface;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.widget.Toast;
+
           import androidx.appcompat.app.AppCompatActivity;
 
           public class MainActivity extends AppCompatActivity {
 
+              public static final String APP_URL = "http://zaicash.gamer.gd/index.php?app=1";
               private WebView webView;
+              private boolean isPageLoaded = false;
 
               @SuppressLint("SetJavaScriptEnabled")
               @Override
@@ -214,53 +251,98 @@ jobs:
                   setContentView(R.layout.activity_main);
 
                   webView = findViewById(R.id.mainWebView);
-                  webView.getSettings().setJavaScriptEnabled(true);
-                  webView.getSettings().setDomStorageEnabled(true);
+
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setSupportMultipleWindows(false);
+                  settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+
+                  CookieManager.getInstance().setAcceptCookie(true);
+                  CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+
                   webView.addJavascriptInterface(new WebAppInterface(this), "AndroidBridge");
 
-                  webView.setWebViewClient(new WebViewClient());
-                  webView.loadUrl("http://zaicash.gamer.gd/index.php?app=1");
+                  webView.setWebChromeClient(new WebChromeClient());
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public void onPageFinished(WebView view, String url) {
+                          super.onPageFinished(view, url);
+                          isPageLoaded = true;
+                          checkAllPermissions();
+                      }
+                  });
+
+                  webView.loadUrl(APP_URL);
               }
 
               @Override
               protected void onResume() {
                   super.onResume();
-                  checkAllPermissions();
+                  if (isPageLoaded) {
+                      checkAllPermissions();
+                  }
               }
 
               public void checkAllPermissions() {
-                  boolean p1 = isAccessibilityServiceEnabled(this, YouTubeWatcherService.class);
-                  boolean p2 = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
-                  boolean p3 = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.System.canWrite(this);
+                  final boolean p1 = isAccessibilityServiceEnabled(this, YouTubeWatcherService.class);
+                  final boolean p2 = Settings.canDrawOverlays(this);
+                  final boolean p3 = Settings.System.canWrite(this);
+
                   PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                  boolean p4 = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName()));
+                  final boolean p4 = (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName()));
 
-                  String t1 = p1 ? "Granted" : "Grant";
-                  String t2 = p2 ? "Granted" : "Grant";
-                  String t3 = p3 ? "Granted" : "Grant";
-                  String t4 = p4 ? "Granted" : "Grant";
+                  final String t1 = p1 ? "Granted ✓" : "Grant";
+                  final String t2 = p2 ? "Granted ✓" : "Grant";
+                  final String t3 = p3 ? "Granted ✓" : "Grant";
+                  final String t4 = p4 ? "Granted ✓" : "Grant";
 
-                  String js = "javascript:(function(){" +
-                          "if(window.grantedPerms){" +
-                          "  grantedPerms[1] = " + p1 + "; var b1 = document.getElementById('p-btn-1'); if(b1) b1.innerText = '" + t1 + "';" +
-                          "  grantedPerms[2] = " + p2 + "; var b2 = document.getElementById('p-btn-2'); if(b2) b2.innerText = '" + t2 + "';" +
-                          "  grantedPerms[3] = " + p3 + "; var b3 = document.getElementById('p-btn-3'); if(b3) b3.innerText = '" + t3 + "';" +
-                          "  grantedPerms[4] = " + p4 + "; var b4 = document.getElementById('p-btn-4'); if(b4) b4.innerText = '" + t4 + "';" +
-                          "  if(" + p1 + " && " + p2 + " && " + p3 + " && " + p4 + "){" +
-                          "    var b = document.getElementById('btn-perm-confirm'); if(b){ b.disabled = false; b.className = 'w-full py-4 rounded-xl purple-gradient text-white font-black text-xs uppercase cursor-pointer'; }" +
-                          "  }" +
-                          "}" +
-                          "})()";
-                  webView.post(() -> webView.evaluateJavascript(js, null));
+                  final String js = "javascript:(function(){" +
+                          "  try {" +
+                          "    if (typeof window.grantedPerms === 'undefined') { window.grantedPerms = {}; }" +
+                          "    window.grantedPerms[1] = " + p1 + ";" +
+                          "    window.grantedPerms[2] = " + p2 + ";" +
+                          "    window.grantedPerms[3] = " + p3 + ";" +
+                          "    window.grantedPerms[4] = " + p4 + ";" +
+                          "    function setBtn(id, granted, text) {" +
+                          "      var btn = document.getElementById('p-btn-' + id);" +
+                          "      if (btn) {" +
+                          "        btn.innerText = text;" +
+                          "        btn.className = granted ? 'px-3.5 py-1.5 rounded-xl text-xs font-bold bg-green-500/20 text-green-300 border border-green-500/40 shrink-0' : 'px-3.5 py-1.5 rounded-xl text-xs font-bold bg-purple-700 text-purple-200 shrink-0';" +
+                          "      }" +
+                          "    }" +
+                          "    setBtn(1, " + p1 + ", '" + t1 + "');" +
+                          "    setBtn(2, " + p2 + ", '" + t2 + "');" +
+                          "    setBtn(3, " + p3 + ", '" + t3 + "');" +
+                          "    setBtn(4, " + p4 + ", '" + t4 + "');" +
+                          "    var startBtn = document.getElementById('btn-perm-confirm');" +
+                          "    var allOk = " + (p1 && p2 && p3 && p4) + ";" +
+                          "    if (startBtn) {" +
+                          "      startBtn.disabled = !allOk;" +
+                          "      startBtn.className = allOk ? 'w-full py-4 rounded-xl purple-gradient text-white font-black text-xs uppercase tracking-wider cursor-pointer shadow-lg shadow-purple-600/40' : 'w-full py-4 rounded-xl bg-gray-800 text-gray-500 font-black text-xs uppercase tracking-wider transition cursor-not-allowed';" +
+                          "    }" +
+                          "  } catch(e) { console.log('Bridge error: ' + e); }" +
+                          "})();";
+
+                  webView.post(new Runnable() {
+                      @Override
+                      public void run() {
+                          webView.evaluateJavascript(js, null);
+                      }
+                  });
               }
 
-              private boolean isAccessibilityServiceEnabled(Context context, Class<?> service) {
-                  String expectedComponentName = context.getPackageName() + "/" + service.getName();
-                  String enabledServicesSetting = Settings.Secure.getString(
+              private boolean isAccessibilityServiceEnabled(Context context, Class<?> serviceClass) {
+                  String expected = context.getPackageName() + "/" + serviceClass.getName();
+                  String enabledServices = Settings.Secure.getString(
                           context.getContentResolver(),
                           Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
                   );
-                  return enabledServicesSetting != null && enabledServicesSetting.contains(expectedComponentName);
+                  if (enabledServices == null) {
+                      return false;
+                  }
+                  return enabledServices.contains(expected);
               }
 
               public class WebAppInterface {
@@ -271,46 +353,79 @@ jobs:
                   }
 
                   @JavascriptInterface
+                  public void checkPermissions() {
+                      runOnUiThread(new Runnable() {
+                          @Override
+                          public void run() {
+                              checkAllPermissions();
+                          }
+                      });
+                  }
+
+                  @JavascriptInterface
                   public void requestPerm(int step) {
-                      Intent intent;
-                      switch (step) {
-                          case 1:
-                              intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                              startActivity(intent);
-                              break;
-                          case 2:
-                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                  intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
-                                  startActivity(intent);
+                      try {
+                          switch (step) {
+                              case 1:
+                                  startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                                  break;
+                              case 2:
+                                  startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                          Uri.parse("package:" + getPackageName())));
+                                  break;
+                              case 3:
+                                  startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                                          Uri.parse("package:" + getPackageName())));
+                                  break;
+                              case 4:
+                                  Intent batteryIntent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                                  batteryIntent.setData(Uri.parse("package:" + getPackageName()));
+                                  startActivity(batteryIntent);
+                                  break;
+                          }
+                      } catch (ActivityNotFoundException | SecurityException e) {
+                          runOnUiThread(new Runnable() {
+                              @Override
+                              public void run() {
+                                  Toast.makeText(context, "Please configure this permission in device Settings.", Toast.LENGTH_SHORT).show();
                               }
-                              break;
-                          case 3:
-                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                  intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + getPackageName()));
-                                  startActivity(intent);
-                              }
-                              break;
-                          case 4:
-                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                  intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName()));
-                                  startActivity(intent);
-                              }
-                              break;
+                          });
                       }
                   }
 
                   @JavascriptInterface
-                  public void launchYouTube(String videoId) {
-                      Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:" + videoId));
-                      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                      try {
-                          startActivity(intent);
-                          YouTubeWatcherService.startWatchCountdown(context, videoId);
-                      } catch (Exception e) {
-                          Intent webIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=" + videoId));
-                          webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                          startActivity(webIntent);
-                      }
+                  public void launchTask(final int taskId, final String videoId) {
+                      runOnUiThread(new Runnable() {
+                          @Override
+                          public void run() {
+                              if (videoId == null || videoId.trim().isEmpty()) {
+                                  Toast.makeText(context, "Invalid Video ID", Toast.LENGTH_SHORT).show();
+                                  return;
+                              }
+
+                              YouTubeWatcherService.startTask(context, taskId, videoId.trim(), APP_URL);
+
+                              Intent appIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:" + videoId.trim()));
+                              appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+                              try {
+                                  context.startActivity(appIntent);
+                              } catch (ActivityNotFoundException e) {
+                                  Intent webIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=" + videoId.trim()));
+                                  webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                  try {
+                                      context.startActivity(webIntent);
+                                  } catch (Exception ex) {
+                                      Toast.makeText(context, "Unable to open YouTube link.", Toast.LENGTH_SHORT).show();
+                                  }
+                              }
+                          }
+                      });
+                  }
+
+                  @JavascriptInterface
+                  public void launchYouTube(final String videoId) {
+                      launchTask(0, videoId);
                   }
               }
           }
@@ -321,48 +436,107 @@ jobs:
 
           import android.accessibilityservice.AccessibilityService;
           import android.annotation.SuppressLint;
+          import android.content.ActivityNotFoundException;
           import android.content.Context;
           import android.content.Intent;
           import android.graphics.PixelFormat;
           import android.net.Uri;
           import android.os.Build;
-          import android.os.CountDownTimer;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.provider.Settings;
           import android.view.Gravity;
           import android.view.LayoutInflater;
           import android.view.View;
           import android.view.WindowManager;
           import android.view.accessibility.AccessibilityEvent;
+          import android.webkit.CookieManager;
           import android.widget.TextView;
-          import okhttp3.*;
+          import android.widget.Toast;
+
+          import org.json.JSONException;
+          import org.json.JSONObject;
+
           import java.io.IOException;
+          import java.util.concurrent.TimeUnit;
+
+          import okhttp3.Call;
+          import okhttp3.Callback;
+          import okhttp3.FormBody;
+          import okhttp3.OkHttpClient;
+          import okhttp3.Request;
+          import okhttp3.Response;
+          import okhttp3.ResponseBody;
 
           public class YouTubeWatcherService extends AccessibilityService {
+
+              private static final String YOUTUBE_PACKAGE = "com.google.android.youtube";
+              private static final int REQUIRED_WATCH_SECONDS = 15;
+
+              private static volatile int currentTaskId = 0;
+              private static volatile String currentVideoId = null;
+              private static volatile String serverEndpoint = "http://zaicash.gamer.gd/index.php";
+              private static volatile boolean isTaskActive = false;
 
               private WindowManager windowManager;
               private View overlayView;
               private TextView timerText;
-              private CountDownTimer countDownTimer;
-              public static String activeVideoId = "";
 
-              public static void startWatchCountdown(Context context, String videoId) {
-                  activeVideoId = videoId;
+              private Handler timerHandler;
+              private Runnable timerRunnable;
+              private int elapsedSeconds = 0;
+              private boolean isCounting = false;
+
+              private OkHttpClient httpClient;
+
+              public static synchronized void startTask(Context context, int taskId, String videoId, String sourceUrl) {
+                  currentTaskId = taskId;
+                  currentVideoId = videoId;
+                  isTaskActive = true;
+
+                  if (sourceUrl != null && sourceUrl.contains("index.php")) {
+                      serverEndpoint = sourceUrl.split("\\?")[0];
+                  }
+              }
+
+              public static synchronized void cancelTask() {
+                  isTaskActive = false;
+                  currentTaskId = 0;
+                  currentVideoId = null;
+              }
+
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  timerHandler = new Handler(Looper.getMainLooper());
+                  windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+
+                  httpClient = new OkHttpClient.Builder()
+                          .connectTimeout(15, TimeUnit.SECONDS)
+                          .readTimeout(15, TimeUnit.SECONDS)
+                          .writeTimeout(15, TimeUnit.SECONDS)
+                          .build();
               }
 
               @Override
               public void onServiceConnected() {
                   super.onServiceConnected();
-                  windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
                   setupFloatingOverlay();
               }
 
               @SuppressLint("InflateParams")
               private void setupFloatingOverlay() {
-                  int layoutType;
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      layoutType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-                  } else {
-                      layoutType = WindowManager.LayoutParams.TYPE_PHONE;
+                  if (overlayView != null) {
+                      return;
                   }
+
+                  if (!Settings.canDrawOverlays(this)) {
+                      return;
+                  }
+
+                  int layoutType = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                          ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                          : WindowManager.LayoutParams.TYPE_PHONE;
 
                   WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                           WindowManager.LayoutParams.WRAP_CONTENT,
@@ -372,125 +546,242 @@ jobs:
                           PixelFormat.TRANSLUCENT
                   );
                   params.gravity = Gravity.TOP | Gravity.END;
-                  params.x = 30;
-                  params.y = 120;
-
-                  overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_countdown, null);
-                  timerText = overlayView.findViewById(R.id.overlayTimer);
-                  overlayView.setVisibility(View.GONE);
+                  params.x = 24;
+                  params.y = 100;
 
                   try {
-                      if (windowManager != null) {
-                          windowManager.addView(overlayView, params);
-                      }
-                  } catch (Exception ignored) {}
+                      overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_countdown, null);
+                      timerText = overlayView.findViewById(R.id.overlayTimer);
+                      overlayView.setVisibility(View.GONE);
+
+                      windowManager.addView(overlayView, params);
+                  } catch (Exception ignored) {
+                      overlayView = null;
+                  }
               }
 
               @Override
               public void onAccessibilityEvent(AccessibilityEvent event) {
-                  if (event == null || event.getPackageName() == null) return;
+                  if (event == null || event.getPackageName() == null) {
+                      return;
+                  }
+
                   String pkg = event.getPackageName().toString();
 
-                  if ("com.google.android.youtube".equals(pkg)) {
-                      if (overlayView != null && overlayView.getVisibility() != View.VISIBLE) {
-                          overlayView.setVisibility(View.VISIBLE);
-                          run15SecTimer();
+                  if (!isTaskActive || currentVideoId == null) {
+                      pauseCountingAndHideOverlay();
+                      return;
+                  }
+
+                  if (YOUTUBE_PACKAGE.equals(pkg)) {
+                      if (!isCounting) {
+                          resumeCountingAndShowOverlay();
                       }
                   } else {
-                      if (overlayView != null) {
-                          overlayView.setVisibility(View.GONE);
-                      }
-                      if (countDownTimer != null) {
-                          countDownTimer.cancel();
-                      }
+                      pauseCountingAndHideOverlay();
                   }
               }
 
-              private void run15SecTimer() {
-                  if (countDownTimer != null) {
-                      countDownTimer.cancel();
+              private void resumeCountingAndShowOverlay() {
+                  if (overlayView == null) {
+                      setupFloatingOverlay();
                   }
-                  countDownTimer = new CountDownTimer(15000, 1000) {
-                      @Override
-                      public void onTick(long millisUntilFinished) {
-                          if (timerText != null) {
-                              timerText.setText("Farmo: " + (millisUntilFinished / 1000) + "s");
-                          }
-                      }
 
-                      @Override
-                      public void onFinish() {
-                          if (timerText != null) {
-                              timerText.setText("Earned!");
-                          }
-                          claimRewardOnServer();
-                      }
-                  }.start();
+                  if (overlayView != null) {
+                      overlayView.setVisibility(View.VISIBLE);
+                  }
+
+                  isCounting = true;
+                  initTimerRunnable();
+                  timerHandler.post(timerRunnable);
               }
 
-              private void claimRewardOnServer() {
-                  OkHttpClient client = new OkHttpClient();
-                  RequestBody formBody = new FormBody.Builder()
-                          .add("task_id", "0")
-                          .build();
+              private void pauseCountingAndHideOverlay() {
+                  isCounting = false;
+                  if (timerRunnable != null) {
+                      timerHandler.removeCallbacks(timerRunnable);
+                  }
 
-                  Request request = new Request.Builder()
-                          .url("http://zaicash.gamer.gd/index.php?api=claim_reward")
-                          .post(formBody)
-                          .build();
-
-                  client.newCall(request).enqueue(new Callback() {
-                      @Override
-                      public void onFailure(Call call, IOException e) {}
-
-                      @Override
-                      public void onResponse(Call call, Response response) {
-                          if (response.isSuccessful()) {
-                              fetchNextVideoAndLaunch();
-                          }
-                      }
-                  });
+                  if (overlayView != null && overlayView.getVisibility() == View.VISIBLE) {
+                      overlayView.setVisibility(View.GONE);
+                  }
               }
 
-              private void fetchNextVideoAndLaunch() {
-                  OkHttpClient client = new OkHttpClient();
-                  Request request = new Request.Builder()
-                          .url("http://zaicash.gamer.gd/index.php?api=get_next_task")
-                          .build();
+              private void initTimerRunnable() {
+                  if (timerRunnable != null) {
+                      timerHandler.removeCallbacks(timerRunnable);
+                  }
 
-                  client.newCall(request).enqueue(new Callback() {
+                  timerRunnable = new Runnable() {
                       @Override
-                      public void onFailure(Call call, IOException e) {}
+                      public void run() {
+                          if (!isCounting || !isTaskActive) {
+                              return;
+                          }
+
+                          elapsedSeconds++;
+                          int remaining = Math.max(0, REQUIRED_WATCH_SECONDS - elapsedSeconds);
+
+                          if (timerText != null) {
+                              timerText.setText("Farmo: " + remaining + "s");
+                          }
+
+                          if (elapsedSeconds >= REQUIRED_WATCH_SECONDS) {
+                              isCounting = false;
+                              isTaskActive = false;
+                              elapsedSeconds = 0;
+
+                              if (timerText != null) {
+                                  timerText.setText("Reward Added! ✓");
+                              }
+
+                              Toast.makeText(getApplicationContext(), "15s Completed! Reward added to balance.", Toast.LENGTH_SHORT).show();
+
+                              submitRewardForCurrentTask();
+                          } else {
+                              timerHandler.postDelayed(this, 1000);
+                          }
+                      }
+                  };
+              }
+
+              private void submitRewardForCurrentTask() {
+                  final int taskIdToClaim = currentTaskId;
+
+                  String cookie = CookieManager.getInstance().getCookie(serverEndpoint);
+                  FormBody.Builder formBuilder = new FormBody.Builder();
+                  formBuilder.add("task_id", String.valueOf(taskIdToClaim));
+
+                  Request.Builder requestBuilder = new Request.Builder()
+                          .url(serverEndpoint + "?api=claim_reward")
+                          .post(formBuilder.build());
+
+                  if (cookie != null && !cookie.isEmpty()) {
+                      requestBuilder.addHeader("Cookie", cookie);
+                  }
+                  requestBuilder.addHeader("X-Requested-With", getPackageName());
+
+                  httpClient.newCall(requestBuilder.build()).enqueue(new Callback() {
+                      @Override
+                      public void onFailure(Call call, IOException e) {
+                          timerHandler.post(new Runnable() {
+                              @Override
+                              public void run() {
+                                  pauseCountingAndHideOverlay();
+                              }
+                          });
+                      }
 
                       @Override
                       public void onResponse(Call call, Response response) throws IOException {
-                          if (response.body() != null) {
-                              String body = response.body().string();
-                              int start = body.indexOf("\"video_id\":\"");
-                              if (start != -1) {
-                                  start += 12;
-                                  int end = body.indexOf("\"", start);
-                                  if (end != -1) {
-                                      String vid = body.substring(start, end);
-                                      Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:" + vid));
-                                      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                      startActivity(intent);
+                          if (!response.isSuccessful()) {
+                              response.close();
+                              return;
+                          }
+
+                          ResponseBody body = response.body();
+                          if (body == null) {
+                              return;
+                          }
+
+                          String responseString = body.string();
+                          try {
+                              JSONObject obj = new JSONObject(responseString);
+                              if ("success".equalsIgnoreCase(obj.optString("status"))) {
+                                  fetchNextTaskAndLoop();
+                              }
+                          } catch (JSONException ignored) {
+                          }
+                      }
+                  });
+              }
+
+              private void fetchNextTaskAndLoop() {
+                  String cookie = CookieManager.getInstance().getCookie(serverEndpoint);
+                  Request.Builder requestBuilder = new Request.Builder()
+                          .url(serverEndpoint + "?api=get_next_task")
+                          .get();
+
+                  if (cookie != null && !cookie.isEmpty()) {
+                      requestBuilder.addHeader("Cookie", cookie);
+                  }
+
+                  httpClient.newCall(requestBuilder.build()).enqueue(new Callback() {
+                      @Override
+                      public void onFailure(Call call, IOException e) {
+                          timerHandler.post(new Runnable() {
+                              @Override
+                              public void run() {
+                                  pauseCountingAndHideOverlay();
+                              }
+                          });
+                      }
+
+                      @Override
+                      public void onResponse(Call call, Response response) throws IOException {
+                          if (!response.isSuccessful()) {
+                              response.close();
+                              return;
+                          }
+
+                          ResponseBody body = response.body();
+                          if (body == null) {
+                              return;
+                          }
+
+                          String jsonString = body.string();
+                          try {
+                              JSONObject json = new JSONObject(jsonString);
+                              if ("success".equalsIgnoreCase(json.optString("status"))) {
+                                  final int nextTaskId = json.optInt("task_id", 0);
+                                  final String nextVideoId = json.optString("video_id", "");
+
+                                  if (!nextVideoId.isEmpty()) {
+                                      timerHandler.post(new Runnable() {
+                                          @Override
+                                          public void run() {
+                                              startTask(YouTubeWatcherService.this, nextTaskId, nextVideoId, serverEndpoint);
+
+                                              Intent appIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:" + nextVideoId));
+                                              appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                              try {
+                                                  startActivity(appIntent);
+                                              } catch (ActivityNotFoundException e) {
+                                                  Intent webIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=" + nextVideoId));
+                                                  webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                  try {
+                                                      startActivity(webIntent);
+                                                  } catch (Exception ignored) {}
+                                              }
+                                          }
+                                      });
                                   }
                               }
+                          } catch (JSONException ignored) {
                           }
                       }
                   });
               }
 
               @Override
-              public void onInterrupt() {}
+              public void onInterrupt() {
+                  pauseCountingAndHideOverlay();
+              }
 
               @Override
               public void onDestroy() {
-                  super.onDestroy()
+                  pauseCountingAndHideOverlay();
+
                   if (overlayView != null && windowManager != null) {
-                      windowManager.removeView(overlayView);
+                      try {
+                          if (overlayView.isAttachedToWindow()) {
+                              windowManager.removeView(overlayView);
+                          }
+                      } catch (Exception ignored) {}
+                      overlayView = null;
                   }
+
+                  super.onDestroy();
               }
           }
           EOF
